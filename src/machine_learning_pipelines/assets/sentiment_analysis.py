@@ -9,6 +9,20 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from pydantic import BaseModel, ConfigDict
 from typing import Any, Optional
+from dagster import asset, AutoMaterializePolicy
+
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+analyzer = SentimentIntensityAnalyzer()
+
+def classify_sentiment(text: str) -> str:
+    scores = analyzer.polarity_scores(text)
+    if scores['compound'] >= 0.05:
+        return "Positive"
+    elif scores['compound'] <= -0.05:
+        return "Negative"
+    else:
+        return "Neutral"
 
 
 class ModelTrainingResult(BaseModel):
@@ -33,31 +47,37 @@ def sentiment_data(context: AssetExecutionContext) -> DataFrame:
     return df
 
 
-@asset
+@asset(auto_materialize_policy=AutoMaterializePolicy.eager())
 def data_transformation(context: AssetExecutionContext, sentiment_data: DataFrame) -> DataFrame:
     context.log.info('Transformation of data')
     sentiment_data["CleanText"] = sentiment_data["Text"].apply(preprocess_text)
     sentiment_data["Sentiment"] = sentiment_data["Sentiment"].str.strip()
+    sentiment_data["categorized_sentiment"] = sentiment_data["Sentiment"].apply(classify_sentiment)
+    sentiment_clone = sentiment_data[["Text", "Sentiment","categorized_sentiment"]].copy()
+    sentiment_clone.to_csv("/app/src/data/sentiment_categorized.csv", index=False)
     context.log.info(sentiment_data)
     return sentiment_data
 
-@asset
+@asset(auto_materialize_policy=AutoMaterializePolicy.eager())
 def data_transformation_with_emoji(context: AssetExecutionContext, sentiment_data: DataFrame) -> DataFrame:
     context.log.info('Transformation of data')
     sentiment_data["CleanText"] = sentiment_data["Text"].apply(preprocess_text)
     sentiment_data["Sentiment"] = sentiment_data["Sentiment"].str.strip()
+    sentiment_data["categorized_sentiment"] = sentiment_data["Sentiment"].apply(classify_sentiment)
+    sentiment_data.to_csv("/app/src/data/sentiment_categorized.csv", index=False)
+
     context.log.info(sentiment_data)
     return sentiment_data
 
 
-@asset
+@asset(auto_materialize_policy=AutoMaterializePolicy.eager())
 def model_training(context: AssetExecutionContext, data_transformation: DataFrame) -> ModelTrainingResult:
     context.log.info('Training of models')
-    X = data_transformation["CleanText"]
-    y = data_transformation["Sentiment"]
+    x = data_transformation["CleanText"]
+    y = data_transformation["categorized_sentiment"]
 
     x_train, x_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        x, y, test_size=0.2, random_state=42
     )
 
     model = Pipeline([
@@ -73,7 +93,7 @@ def model_training(context: AssetExecutionContext, data_transformation: DataFram
     return model_traning_result
 
 
-@asset
+@asset(auto_materialize_policy=AutoMaterializePolicy.eager())
 def evaluate_sentiment_data(context: AssetExecutionContext, model_training: ModelTrainingResult):
     context.log.info('Evaluation of models')
     y_pred = model_training.model.predict(model_training.x_test)
