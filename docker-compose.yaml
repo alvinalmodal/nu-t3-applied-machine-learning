@@ -50,6 +50,23 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres_db_grafana_db:
+    image: postgres:latest
+    container_name: postgres_db_grafana_db
+    environment:
+      POSTGRES_USER: grafana_db
+      POSTGRES_PASSWORD: grafana_db
+      POSTGRES_DB: grafana_db
+    ports:
+      - "5535:5432"
+    volumes:
+      - postgres_db_grafana_db:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U report_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   dagster_ui:
     build:
       context: .
@@ -99,3 +116,4 @@ volumes:
   postgres_data:
   postgres_data_operational_db:
   postgres_data_report_db:
+  postgres_db_grafana_db:
