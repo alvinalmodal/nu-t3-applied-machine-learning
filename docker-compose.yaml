@@ -147,6 +147,8 @@ services:
     depends_on:
       postgres_db_dagster:
         condition: service_healthy
+      dagster_ui:
+        condition: service_healthy
 
 volumes:
   postgres_data:
