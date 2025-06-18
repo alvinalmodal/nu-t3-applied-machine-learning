@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import classification_report
 from pydantic import BaseModel, ConfigDict
 from typing import Any, Optional
@@ -71,7 +72,7 @@ def data_transformation_with_emoji(context: AssetExecutionContext, sentiment_dat
 
 
 @asset(auto_materialize_policy=AutoMaterializePolicy.eager())
-def model_training(context: AssetExecutionContext, data_transformation: DataFrame) -> ModelTrainingResult:
+def tfidf_model_training(context: AssetExecutionContext, data_transformation: DataFrame) -> ModelTrainingResult:
     context.log.info('Training of models')
     x = data_transformation["CleanText"]
     y = data_transformation["categorized_sentiment"]
@@ -92,11 +93,41 @@ def model_training(context: AssetExecutionContext, data_transformation: DataFram
 
     return model_traning_result
 
+@asset(auto_materialize_policy=AutoMaterializePolicy.eager())
+def decision_tree_model_training(context: AssetExecutionContext, data_transformation: DataFrame) -> ModelTrainingResult:
+    context.log.info('Training of models')
+    x = data_transformation["CleanText"]
+    y = data_transformation["categorized_sentiment"]
+
+    x_train, x_test, y_train, y_test = train_test_split(
+        x, y, test_size=0.2, random_state=42
+    )
+
+    model = Pipeline([
+        ("tfidf", TfidfVectorizer(ngram_range=(1, 2), stop_words="english")),
+        ("clf", DecisionTreeClassifier())
+    ])
+
+    model.fit(x_train, y_train)
+
+    model_traning_result = ModelTrainingResult(x_train=x_train, x_test=x_test, y_train=y_train, y_test=y_test,
+                                               model=model, df=data_transformation)
+
+    return model_traning_result
+
 
 @asset(auto_materialize_policy=AutoMaterializePolicy.eager())
-def evaluate_sentiment_data(context: AssetExecutionContext, model_training: ModelTrainingResult):
+def evaluate_decision_tree_sentiment_data(context: AssetExecutionContext, decision_tree_model_training: ModelTrainingResult):
     context.log.info('Evaluation of models')
-    y_pred = model_training.model.predict(model_training.x_test)
-    report = classification_report(model_training.y_test, y_pred, output_dict=True)
+    y_pred = decision_tree_model_training.model.predict(decision_tree_model_training.x_test)
+    report = classification_report(decision_tree_model_training.y_test, y_pred, output_dict=True)
+    report_df = pd.DataFrame(report).transpose()
+    context.log.info(report_df)
+
+@asset(auto_materialize_policy=AutoMaterializePolicy.eager())
+def evaluate_tfidf_sentiment_data(context: AssetExecutionContext, tfidf_model_training: ModelTrainingResult):
+    context.log.info('Evaluation of models')
+    y_pred = tfidf_model_training.model.predict(tfidf_model_training.x_test)
+    report = classification_report(tfidf_model_training.y_test, y_pred, output_dict=True)
     report_df = pd.DataFrame(report).transpose()
     context.log.info(report_df)
